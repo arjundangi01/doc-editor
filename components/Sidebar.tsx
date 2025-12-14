@@ -53,14 +53,16 @@ const TreeNode: React.FC<{
     <div className="select-none">
       <div
         className={`flex items-center group py-1 px-2 cursor-pointer text-sm transition-colors ${
-          isActive ? 'bg-blue-100 text-blue-700 font-medium' : 'hover:bg-gray-100 text-gray-700'
+          isActive 
+            ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium' 
+            : 'hover:bg-gray-100 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-300'
         }`}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={handleToggle}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <span className="mr-1 text-gray-400">
+        <span className="mr-1 text-gray-400 dark:text-gray-500">
           {node.type === NodeType.FOLDER ? (
             isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />
           ) : (
@@ -70,9 +72,9 @@ const TreeNode: React.FC<{
         
         <span className="mr-2">
           {node.type === NodeType.FOLDER ? (
-            isOpen ? <FolderOpen size={16} className="text-blue-500" /> : <Folder size={16} className="text-blue-500" />
+            isOpen ? <FolderOpen size={16} className="text-blue-500 dark:text-blue-400" /> : <Folder size={16} className="text-blue-500 dark:text-blue-400" />
           ) : (
-            <File size={16} className="text-gray-500" />
+            <File size={16} className="text-gray-500 dark:text-gray-400" />
           )}
         </span>
 
@@ -83,10 +85,10 @@ const TreeNode: React.FC<{
           <div className="flex items-center gap-1">
              {node.type === NodeType.FOLDER && (
                <>
-                 <button onClick={handleAddFile} title="New Page" className="p-1 hover:bg-gray-200 rounded">
+                 <button onClick={handleAddFile} title="New Page" className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 dark:text-gray-400">
                    <FilePlus size={12} />
                  </button>
-                 <button onClick={handleAddFolder} title="New Folder" className="p-1 hover:bg-gray-200 rounded">
+                 <button onClick={handleAddFolder} title="New Folder" className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-500 dark:text-gray-400">
                    <FolderPlus size={12} />
                  </button>
                </>
@@ -94,7 +96,7 @@ const TreeNode: React.FC<{
              {node.parentId && ( // Cannot delete root
                 <button 
                   onClick={(e) => { e.stopPropagation(); onDeleteNode(node.id); }} 
-                  className="p-1 hover:bg-red-100 text-red-500 rounded"
+                  className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400 rounded"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -118,7 +120,7 @@ const TreeNode: React.FC<{
             />
           ))}
           {node.children.length === 0 && (
-             <div className="text-xs text-gray-400 py-1 pl-8 italic">Empty folder</div>
+             <div className="text-xs text-gray-400 dark:text-gray-600 py-1 pl-8 italic">Empty folder</div>
           )}
         </div>
       )}
@@ -128,8 +130,8 @@ const TreeNode: React.FC<{
 
 export const Sidebar: React.FC<SidebarProps> = ({ nodes, rootId, activePageId, onSelectPage, onCreateNode, onDeleteNode }) => {
   return (
-    <div className="w-64 flex flex-col h-full bg-gray-50 border-r border-gray-200">
-      <div className="p-4 border-b border-gray-200 font-semibold text-gray-700 flex items-center justify-between">
+    <div className="w-64 flex flex-col h-full bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transition-colors">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700 font-semibold text-gray-700 dark:text-gray-200 flex items-center justify-between">
         <span>Explorer</span>
       </div>
       <div className="flex-1 overflow-y-auto py-2">

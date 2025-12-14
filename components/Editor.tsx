@@ -152,15 +152,14 @@ const TextElement = memo(({ el, isSelected, onPointerDown, onUpdate, registerRef
     return (
         <div
             ref={containerRef}
-            className={`absolute p-2 outline-none rounded transition-shadow pointer-events-auto group ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
+            className={`absolute p-2 outline-none rounded transition-shadow pointer-events-auto group cursor-pointer ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
             style={{ 
                 left: el.x, 
                 top: el.y, 
                 width: el.width,
                 height: el.height,
                 maxWidth: el.width ? 'none' : '800px',
-                minWidth: '20px',
-                cursor: 'text' 
+                minWidth: '20px'
             }}
             onPointerDown={(e) => onPointerDown(e, el.id)}
         >
@@ -175,7 +174,7 @@ const TextElement = memo(({ el, isSelected, onPointerDown, onUpdate, registerRef
                 ref={localRef}
                 contentEditable
                 suppressContentEditableWarning
-                className="outline-none text-gray-900 prose prose-sm max-w-none w-full h-full overflow-y-auto
+                className={`outline-none text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none w-full h-full overflow-y-auto
                   prose-p:my-1 prose-headings:my-2 
                   prose-h1:text-3xl prose-h1:font-bold prose-h1:leading-tight
                   prose-h2:text-2xl prose-h2:font-semibold 
@@ -183,7 +182,8 @@ const TextElement = memo(({ el, isSelected, onPointerDown, onUpdate, registerRef
                   prose-ul:list-disc prose-ul:pl-4 
                   prose-img:rounded-md prose-img:my-2
                   prose-hr:my-4
-                  min-h-[1.5em] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400"
+                  min-h-[1.5em] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400
+                  ${isSelected ? 'cursor-text pointer-events-auto' : 'pointer-events-none'}`}
                 data-placeholder="Type '/' for commands..."
                 onBlur={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
                 onInput={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
@@ -303,9 +303,38 @@ const ImageElement = memo(({ el, isSelected, onPointerDown, onDelete, onResizeSt
 
 // --- Main Editor Component ---
 
+const COLORS = [
+  '#000000', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'
+];
+
+const ColorPicker = ({ 
+    activeColor, 
+    onChange 
+}: { 
+    activeColor: string, 
+    onChange: (color: string) => void 
+}) => {
+    return (
+        <div className="flex gap-1 items-center px-2">
+            {COLORS.map(c => (
+                <button
+                    key={c}
+                    onMouseDown={(e) => e.preventDefault()} // Prevent losing focus from text editor
+                    onClick={() => onChange(c)}
+                    className={`w-6 h-6 rounded-full border border-gray-300 dark:border-gray-600 transition-all ${activeColor === c ? 'ring-2 ring-blue-500 scale-110 z-10' : 'hover:scale-105'}`}
+                    style={{ backgroundColor: c }}
+                />
+            ))}
+        </div>
+    );
+};
+
+// --- Main Editor Component ---
+
 export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, pageName }) => {
   const [elements, setElements] = useState<CanvasElement[]>(() => initialContent.elements || []);
   const [tool, setTool] = useState<Tool>('SELECT');
+  const [activeColor, setActiveColor] = useState('#000000');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [slashMenu, setSlashMenu] = useState<{ x: number, y: number, targetId: string } | null>(null);
   const [selectionBox, setSelectionBox] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
@@ -331,6 +360,43 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
   const registerRef = useCallback((id: string, el: HTMLDivElement | null) => {
       elementRefs.current[id] = el;
   }, []);
+
+  // Update selection color when active color changes
+  const applyColorToSelection = (color: string) => {
+      setActiveColor(color);
+      
+      // If elements are selected
+      if (selectedIds.size > 0) {
+          const updates = elements.map(el => {
+            if (selectedIds.has(el.id)) {
+                // For Text
+                if (el.type === ElementType.TEXT) {
+                    const selection = window.getSelection();
+                    // If text text is highlighted, use execCommand
+                    if (selection && selection.toString() && document.activeElement?.contains(selection.anchorNode)) {
+                        document.execCommand('foreColor', false, color);
+                        return el; // Content update handled by onBlur/Input
+                    } else {
+                        // If no specific text is highlighted, change the default color for the block
+                        // We also execute foreColor on the empty selection to set future typing color
+                        if (document.activeElement === elementRefs.current[el.id]?.querySelector('[contenteditable]')) {
+                             document.execCommand('foreColor', false, color);
+                        }
+                        // And update container style for good measure/persistence
+                        return { ...el, style: { ...el.style, strokeColor: color } }; // Reusing strokeColor field for text main color as per types
+                    }
+                }
+                
+                // For Shapes
+                if ([ElementType.RECTANGLE, ElementType.CIRCLE, ElementType.PATH].includes(el.type)) {
+                    return { ...el, style: { ...el.style, strokeColor: color } };
+                }
+            }
+            return el;
+          });
+          setElements(updates);
+      }
+  };
 
   // Auto-save
   useEffect(() => {
@@ -377,9 +443,6 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
               setElements(prev => prev.map(el => {
                   if (initialPositions[el.id]) {
                        const init = initialPositions[el.id];
-                       if (el.type === ElementType.PATH) {
-                           return { ...el, x: init.x + dx, y: init.y + dy };
-                       }
                        return { ...el, x: init.x + dx, y: init.y + dy };
                   }
                   return el;
@@ -502,8 +565,9 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
     
     if (tool === 'TEXT' && target.isContentEditable) return;
 
+    const isDragCreation = ['RECT', 'CIRCLE', 'DRAW'].includes(tool);
     interactionRef.current = { 
-      startX: x, startY: y, currentId: generateId(), mode: 'CREATING', initialPositions: {},
+      startX: x, startY: y, currentId: generateId(), mode: isDragCreation ? 'CREATING' : 'IDLE', initialPositions: {},
       resizeHandle: '', initialBounds: { x: 0, y: 0, width: 0, height: 0 }
     };
 
@@ -515,7 +579,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       } else if (tool === 'EXPANDABLE') {
         newEl = { id: interactionRef.current.currentId!, type: ElementType.EXPANDABLE, x, y, content: 'Toggle Section', isExpanded: true, width: 300 };
       } else {
-        newEl = { id: interactionRef.current.currentId!, type: ElementType.TEXT, x, y, content: '' };
+        newEl = { id: interactionRef.current.currentId!, type: ElementType.TEXT, x, y, content: '', width: 500, height: 200 };
       }
       
       setElements(prev => [...prev, newEl]);
@@ -534,7 +598,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
         type: ElementType.PATH,
         x: 0, y: 0,
         points: [{ x, y }],
-        style: { strokeColor: '#000', strokeWidth: 2 }
+        style: { strokeColor: activeColor, strokeWidth: 2 }
       };
     } else {
       newEl = {
@@ -542,7 +606,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
         type: tool === 'RECT' ? ElementType.RECTANGLE : ElementType.CIRCLE,
         x, y,
         width: 0, height: 0,
-        style: { strokeColor: '#000', backgroundColor: 'transparent', strokeWidth: 2 }
+        style: { strokeColor: activeColor, backgroundColor: 'transparent', strokeWidth: 2 }
       };
     }
     setElements(prev => [...prev, newEl]);
@@ -630,6 +694,11 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       const dragHandle = target.closest('[data-drag-handle]');
 
       if (tool === 'SELECT') {
+          const element = elements.find(el => el.id === id);
+          if (element?.style?.strokeColor) {
+              setActiveColor(element.style.strokeColor);
+          }
+          
           if (e.shiftKey) {
               setSelectedIds(prev => {
                   const next = new Set(prev);
@@ -745,9 +814,14 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
 
   const renderSvgElement = (el: CanvasElement) => {
       const isSelected = selectedIds.has(el.id);
-      const stroke = isSelected ? '#3b82f6' : (el.style?.strokeColor || '#000');
+      // Use element's own stroke color for selection highlight, fallback to blue if undefined or black
+      const selectionColor = (el.style?.strokeColor && el.style.strokeColor !== '#000000') ? el.style.strokeColor : '#3b82f6';
+      const stroke = isSelected ? selectionColor : (el.style?.strokeColor || '#000');
+      // Increase stroke width slightly when selected if using same color
+      const strokeWidth = (isSelected && stroke === el.style?.strokeColor) ? (el.style?.strokeWidth || 2) + 1 : (el.style?.strokeWidth || 2);
+      
       const props = {
-          key: el.id, stroke, strokeWidth: el.style?.strokeWidth, className: `pointer-events-auto cursor-pointer ${tool === 'ERASER' ? 'hover:opacity-50' : ''}`,
+          key: el.id, stroke, strokeWidth, className: `pointer-events-auto cursor-pointer ${tool === 'ERASER' ? 'hover:opacity-50' : ''}`,
           onPointerDown: (e: React.PointerEvent) => handleElementPointerDown(e, el.id)
       };
       
@@ -758,29 +832,32 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
   }
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative transition-colors">
       {slashMenu && <SlashMenu position={slashMenu} onSelect={handleSlashSelect} onClose={() => setSlashMenu(null)} />}
       
-      <div className="h-14 border-b border-gray-200 flex items-center px-4 justify-between bg-white z-40 shadow-sm">
+      <div className="h-14 border-b border-gray-200 dark:border-gray-700 flex items-center px-4 justify-between bg-white dark:bg-gray-800 z-40 shadow-sm transition-colors">
          <div className="flex items-center gap-2">
-            <h1 className="font-semibold text-lg text-gray-800 mr-4 max-w-[200px] truncate">{pageName}</h1>
-            <div className="h-6 w-px bg-gray-300 mx-2"></div>
+            <h1 className="font-semibold text-lg text-gray-800 dark:text-white mr-4 max-w-[200px] truncate">{pageName}</h1>
+            <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
             <ToolButton icon={<MousePointer2 size={18} />} active={tool === 'SELECT'} onClick={() => setTool('SELECT')} label="Select (Esc)" />
             <ToolButton icon={<Eraser size={18} />} active={tool === 'ERASER'} onClick={() => setTool('ERASER')} label="Eraser" />
-            <div className="h-6 w-px bg-gray-300 mx-2"></div>
+            <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
             <ToolButton icon={<Type size={18} />} active={tool === 'TEXT'} onClick={() => setTool('TEXT')} label="Text" />
             <ToolButton icon={<Square size={18} />} active={tool === 'RECT'} onClick={() => setTool('RECT')} label="Box" />
             <ToolButton icon={<Circle size={18} />} active={tool === 'CIRCLE'} onClick={() => setTool('CIRCLE')} label="Circle" />
             <ToolButton icon={<Pencil size={18} />} active={tool === 'DRAW'} onClick={() => setTool('DRAW')} label="Draw" />
-            <div className="h-6 w-px bg-gray-300 mx-2"></div>
+            <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
             <ToolButton icon={<Code size={18} />} active={tool === 'CODE'} onClick={() => setTool('CODE')} label="Code" />
             <ToolButton icon={<Maximize2 size={18} />} active={tool === 'EXPANDABLE'} onClick={() => setTool('EXPANDABLE')} label="Section" />
+            
+            <div className="h-6 w-px bg-gray-300 dark:bg-gray-600 mx-2"></div>
+            <ColorPicker activeColor={activeColor} onChange={applyColorToSelection} />
          </div>
-         <div className="text-xs text-gray-400">{elements.length} items • {tool} Mode</div>
+         <div className="text-xs text-gray-400 dark:text-gray-500">{elements.length} items • {tool} Mode</div>
       </div>
 
       <div 
-        className={`flex-1 overflow-auto relative bg-gray-50 canvas-grid touch-none ${tool === 'ERASER' ? 'cursor-cell' : 'cursor-crosshair'}`}
+        className={`flex-1 overflow-auto relative bg-gray-50 dark:bg-gray-900 canvas-grid touch-none ${tool === 'ERASER' ? 'cursor-cell' : 'cursor-crosshair'}`}
         onPointerDown={handleContainerPointerDown}
         onPointerMove={handleContainerPointerMove}
         onPointerUp={handleContainerPointerUp}
@@ -796,5 +873,5 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
 };
 
 const ToolButton: React.FC<{ icon: React.ReactNode; active: boolean; onClick: () => void; label: string }> = ({ icon, active, onClick, label }) => (
-    <button onClick={onClick} title={label} className={`p-2 rounded flex items-center justify-center transition-all ${active ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 hover:bg-gray-100'}`}>{icon}</button>
+    <button onClick={onClick} title={label} className={`p-2 rounded flex items-center justify-center transition-all ${active ? 'bg-blue-600 text-white shadow-md' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>{icon}</button>
 );
