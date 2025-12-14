@@ -4,7 +4,7 @@ import { generateId } from '../services/store';
 import { 
   Type, MousePointer2, Square, Circle, Pencil, Image as ImageIcon, 
   Code, Maximize2, Minimize2, GripVertical, Heading1, Heading2, 
-  List, Terminal, Eraser, Minus
+  List, Terminal, Eraser, Minus, ChevronRight, Plus
 } from 'lucide-react';
 
 interface EditorProps {
@@ -48,6 +48,7 @@ const SlashMenu = ({
     { label: 'Heading 2', type: 'h2', icon: <Heading2 size={16}/> },
     { label: 'Bullet List', type: 'ul', icon: <List size={16}/> },
     { label: 'Code Block', type: 'code', icon: <Terminal size={16}/> },
+    { label: 'Toggle List', type: 'toggle', icon: <ChevronRight size={16}/> },
     { label: 'Divider', type: 'divider', icon: <Minus size={16}/> },
     { label: 'Image', type: 'image', icon: <ImageIcon size={16}/> },
   ];
@@ -149,20 +150,36 @@ const TextElement = memo(({ el, isSelected, onPointerDown, onUpdate, registerRef
         }
     };
 
+    // Auto-Correct Height: If fixed height is too small for content (creating scrollbar), expand it.
+    // This handles cases like resizing width (which increases content height) where the manual height logic wouldn't know to expand.
+    useEffect(() => {
+        if (el.height && containerRef.current) {
+            const wrapper = containerRef.current.querySelector('.overflow-y-auto');
+            if (wrapper && wrapper.scrollHeight > wrapper.clientHeight) {
+                // If overflowing, snap height to fit content. 
+                // We add a tiny buffer to ensure scrollbar definitely disappears.
+                onUpdate(el.id, { height: wrapper.scrollHeight + 2 });
+            }
+        }
+    }, [el.content, el.width, el.height, el.id, onUpdate]);
+
     return (
         <div
             ref={containerRef}
-            className={`absolute p-2 outline-none rounded transition-shadow pointer-events-auto group cursor-pointer ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
+            className={`absolute outline-none rounded transition-shadow pointer-events-auto group cursor-pointer ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
             style={{ 
                 left: el.x, 
                 top: el.y, 
                 width: el.width,
-                height: el.height,
+                // If height is set (manually resized), use it. Otherwise auto (grows).
+                height: el.height || 'auto',
+                minHeight: '50px',
                 maxWidth: el.width ? 'none' : '800px',
                 minWidth: '20px'
             }}
             onPointerDown={(e) => onPointerDown(e, el.id)}
         >
+            {/* Allow all directions for resizing. If user resizes height, it becomes fixed. */}
             <ResizeHandles isSelected={isSelected} onResizeStart={(e, h) => onResizeStart(e, el.id, h)} />
             
             {isSelected && (
@@ -170,26 +187,30 @@ const TextElement = memo(({ el, isSelected, onPointerDown, onUpdate, registerRef
                     <div className="p-1 text-gray-400 hover:text-gray-600"><GripVertical size={12}/></div>
                 </div>
             )}
-            <div
-                ref={localRef}
-                contentEditable
-                suppressContentEditableWarning
-                className={`outline-none text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none w-full h-full overflow-y-auto
-                  prose-p:my-1 prose-headings:my-2 
-                  prose-h1:text-3xl prose-h1:font-bold prose-h1:leading-tight
-                  prose-h2:text-2xl prose-h2:font-semibold 
-                  prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-pre:p-2 prose-pre:rounded
-                  prose-ul:list-disc prose-ul:pl-4 
-                  prose-img:rounded-md prose-img:my-2
-                  prose-hr:my-4
-                  min-h-[1.5em] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400
-                  ${isSelected ? 'cursor-text pointer-events-auto' : 'pointer-events-none'}`}
-                data-placeholder="Type '/' for commands..."
-                onBlur={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
-                onInput={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
-                onKeyDown={handleKeyDown}
-                onKeyUp={(e) => onKeyUp(e, el.id)}
-            />
+            
+            {/* Scroll Wrapper: Handles overflow if height is fixed */}
+            <div className={`w-full ${el.height ? 'h-full overflow-y-auto' : 'h-auto'}`}>
+                <div
+                    ref={localRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className={`outline-none p-2 text-gray-900 dark:text-gray-100 prose prose-sm dark:prose-invert max-w-none w-full min-h-full
+                      prose-p:my-1 prose-headings:my-2 
+                      prose-h1:text-3xl prose-h1:font-bold prose-h1:leading-tight
+                      prose-h2:text-2xl prose-h2:font-semibold 
+                      prose-pre:bg-gray-100 prose-pre:text-gray-800 prose-pre:p-2 prose-pre:rounded
+                      prose-ul:list-disc prose-ul:pl-4 
+                      prose-img:rounded-md prose-img:my-2
+                      prose-hr:my-4
+                      min-h-[1.5em] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400
+                      ${isSelected ? 'cursor-text pointer-events-auto' : 'pointer-events-none'}`}
+                    data-placeholder="Type '/' for commands..."
+                    onBlur={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
+                    onInput={(e) => onUpdate(el.id, { content: e.currentTarget.innerHTML })}
+                    onKeyDown={handleKeyDown}
+                    onKeyUp={(e) => onKeyUp(e, el.id)}
+                />
+            </div>
         </div>
     );
 });
@@ -224,7 +245,7 @@ const CodeElement = memo(({ el, isSelected, onPointerDown, onUpdate, onDelete, o
     );
 });
 
-const ExpandableElement = memo(({ el, isSelected, onPointerDown, onUpdate, onDelete, onResizeStart, registerRef }: BaseElementProps) => {
+const ExpandableElement = memo(({ el, isSelected, onPointerDown, onUpdate, onDelete, onResizeStart, registerRef, onKeyUp }: BaseElementProps & { onKeyUp?: (e: React.KeyboardEvent, id: string) => void }) => {
     const title = el.content?.split('||')[0] || '';
     const body = el.content?.split('||')[1] || '';
     const bodyRef = useRef<HTMLDivElement>(null);
@@ -236,25 +257,25 @@ const ExpandableElement = memo(({ el, isSelected, onPointerDown, onUpdate, onDel
     return (
         <div
             ref={containerRef}
-            className={`absolute bg-white border border-gray-200 rounded-lg shadow-sm pointer-events-auto flex flex-col ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
+            className={`absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm pointer-events-auto flex flex-col transition-colors ${isSelected ? '' : 'hover:ring-1 hover:ring-gray-300'}`}
             style={{ left: el.x, top: el.y, width: el.width || 300, height: el.height }}
             onPointerDown={(e) => onPointerDown(e, el.id)}
         >
             <ResizeHandles isSelected={isSelected} onResizeStart={(e, h) => onResizeStart(e, el.id, h)} />
 
             <div 
-                className="flex items-center px-3 py-2 bg-gray-50 border-b border-gray-100 cursor-move select-none rounded-t-lg shrink-0"
+                className="flex items-center px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 cursor-move select-none rounded-t-lg shrink-0 transition-colors"
                 data-drag-handle="true"
             >
                 <button 
                     onClick={(e) => { e.stopPropagation(); onUpdate(el.id, { isExpanded: !el.isExpanded })}}
-                    className="mr-2 text-gray-500 hover:text-blue-600 transition-colors"
+                    className="mr-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                     onPointerDown={(e) => e.stopPropagation()}
                 >
                     {el.isExpanded ? <Minimize2 size={14}/> : <Maximize2 size={14} />}
                 </button>
                 <input 
-                    className="bg-transparent font-medium text-gray-700 outline-none flex-1 text-sm"
+                    className="bg-transparent font-medium text-gray-700 dark:text-gray-200 outline-none flex-1 text-sm"
                     value={title}
                     onChange={(e) => onUpdate(el.id, { content: `${e.target.value}||${body}` })}
                     placeholder="Section Title"
@@ -263,11 +284,13 @@ const ExpandableElement = memo(({ el, isSelected, onPointerDown, onUpdate, onDel
             {el.isExpanded && (
                 <div 
                     ref={bodyRef}
-                    className="p-3 text-sm text-gray-600 outline-none prose prose-sm max-w-none flex-1 overflow-y-auto"
+                    className="p-3 text-sm text-gray-900 dark:text-gray-100 outline-none prose prose-sm dark:prose-invert max-w-none flex-1 overflow-y-auto"
                     contentEditable
                     suppressContentEditableWarning
+                    data-placeholder="Type '/' for commands..."
                     onBlur={(e) => onUpdate(el.id, { content: `${title}||${e.currentTarget.innerHTML}` })}
                     onInput={(e) => onUpdate(el.id, { content: `${title}||${e.currentTarget.innerHTML}` })}
+                    onKeyUp={(e) => onKeyUp && onKeyUp(e, el.id)}
                 />
             )}
         </div>
@@ -331,10 +354,45 @@ const ColorPicker = ({
 
 // --- Main Editor Component ---
 
+// --- Zoom Controls ---
+const ZoomControls = ({ scale, setScale }: { scale: number, setScale: (s: number) => void }) => {
+    return (
+        <div className="absolute bottom-4 left-4 flex items-center gap-2 bg-white dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg z-50">
+            <button 
+                onClick={() => setScale(Math.max(0.1, scale - 0.1))}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
+                title="Zoom Out"
+            >
+                <Minus size={16} />
+            </button>
+            <span className="text-xs w-12 text-center font-medium text-gray-700 dark:text-gray-300">
+                {Math.round(scale * 100)}%
+            </span>
+            <button 
+                onClick={() => setScale(Math.min(3, scale + 0.1))}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-700 dark:text-gray-300"
+                title="Zoom In"
+            >
+                <Plus size={16} />
+            </button>
+            <button 
+                 onClick={() => setScale(1)}
+                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-500 text-xs ml-1"
+                 title="Reset Zoom"
+            >
+                Reset
+            </button>
+        </div>
+    );
+};
+
+// --- Main Editor Component ---
+
 export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, pageName }) => {
   const [elements, setElements] = useState<CanvasElement[]>(() => initialContent.elements || []);
   const [tool, setTool] = useState<Tool>('SELECT');
   const [activeColor, setActiveColor] = useState('#000000');
+  const [scale, setScale] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [slashMenu, setSlashMenu] = useState<{ x: number, y: number, targetId: string } | null>(null);
   const [selectionBox, setSelectionBox] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
@@ -361,6 +419,12 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       elementRefs.current[id] = el;
   }, []);
 
+  const getContentHeight = useCallback(() => {
+      if (elements.length === 0) return 2000;
+      const maxY = Math.max(...elements.map(el => el.y + (el.height || 0)));
+      return Math.max(window.innerHeight, maxY + 500); // Add buffer
+  }, [elements]);
+
   // Update selection color when active color changes
   const applyColorToSelection = (color: string) => {
       setActiveColor(color);
@@ -385,6 +449,21 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
                         // And update container style for good measure/persistence
                         return { ...el, style: { ...el.style, strokeColor: color } }; // Reusing strokeColor field for text main color as per types
                     }
+                }
+
+                // For Expandable Sections
+                if (el.type === ElementType.EXPANDABLE) {
+                    // Check if selection is within this element
+                    const selection = window.getSelection();
+                    if (selection && selection.toString() && document.activeElement?.contains(selection.anchorNode)) {
+                        document.execCommand('foreColor', false, color);
+                        return el;
+                    } 
+                     // Also try to apply to active element if detailed selection is empty but focus is inside
+                    if (document.activeElement && elementRefs.current[el.id]?.contains(document.activeElement)) {
+                         document.execCommand('foreColor', false, color);
+                    }
+                    return el;
                 }
                 
                 // For Shapes
@@ -437,8 +516,9 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
           
           if (mode === 'MOVING') {
               e.preventDefault(); 
-              const dx = e.clientX - startX;
-              const dy = e.clientY - startY;
+              // Adjust delta by scale
+              const dx = (e.clientX - startX) / scale;
+              const dy = (e.clientY - startY) / scale;
               
               setElements(prev => prev.map(el => {
                   if (initialPositions[el.id]) {
@@ -449,32 +529,59 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
               }));
           } else if (mode === 'RESIZING' && currentId) {
               e.preventDefault();
-              const dx = e.clientX - startX;
-              const dy = e.clientY - startY;
+              const dx = (e.clientX - startX) / scale;
+              const dy = (e.clientY - startY) / scale;
               
-              let newX = initialBounds.x;
-              let newY = initialBounds.y;
-              let newW = initialBounds.width;
-              let newH = initialBounds.height;
+              setElements(prev => prev.map(el => {
+                  if (el.id !== currentId) return el;
 
-              if (resizeHandle.includes('e')) newW = Math.max(20, initialBounds.width + dx);
-              if (resizeHandle.includes('w')) {
-                  const maxDelta = initialBounds.width - 20;
-                  const effDx = Math.min(dx, maxDelta);
-                  newW = initialBounds.width - effDx;
-                  newX = initialBounds.x + effDx;
-              }
-              if (resizeHandle.includes('s')) newH = Math.max(20, initialBounds.height + dy);
-              if (resizeHandle.includes('n')) {
-                  const maxDelta = initialBounds.height - 20;
-                  const effDy = Math.min(dy, maxDelta);
-                  newH = initialBounds.height - effDy;
-                  newY = initialBounds.y + effDy;
-              }
+                  let newX = initialBounds.x;
+                  let newY = initialBounds.y;
+                  let newW = initialBounds.width;
+                  let newH = initialBounds.height;
+                  
+                  // Calculate minimum height based on content if Text
+                  let minH = 20;
+                  if (el.type === ElementType.TEXT && elementRefs.current[el.id]) {
+                      // Use the scroll wrapper's first child (content) or the wrapper itself?
+                      // The wrapper has overflow-y-auto. Its scrollHeight includes hidden content.
+                      // elementRefs.current[el.id] is the wrapper (containerRef).
+                      // Just checking its scrollHeight should be enough.
+                      const scrollWrapper = elementRefs.current[el.id]?.querySelector('.overflow-y-auto');
+                      // If fixed height mode, the wrapper has the scrollbar.
+                      // If auto mode, the wrapper is h-auto.
+                      // Actually, let's look at the DOM structure.
+                      // The containerRef is the outer absolute div.
+                      // Inside is ResizeHandles.
+                      // Then "Scroll Wrapper" div.
+                      // We want the height of the distinct content.
+                      // Safeguard: use el.scrollHeight or just the container's scrollHeight?
+                      // The container is explicit height. We want the content's natural height.
+                      // The content div is the grandchild.
+                      const contentNode = elementRefs.current[el.id]?.querySelector('[contenteditable]');
+                      if (contentNode) {
+                          minH = contentNode.scrollHeight + 16; // Add padding buffer (p-2 = 8px * 2)
+                      }
+                  }
 
-              setElements(prev => prev.map(el => el.id === currentId ? {
-                  ...el, x: newX, y: newY, width: newW, height: newH
-              } : el));
+                  if (resizeHandle.includes('e')) newW = Math.max(20, initialBounds.width + dx);
+                  if (resizeHandle.includes('w')) {
+                      const maxDelta = initialBounds.width - 20;
+                      const effDx = Math.min(dx, maxDelta);
+                      newW = initialBounds.width - effDx;
+                      newX = initialBounds.x + effDx;
+                  }
+                  
+                  if (resizeHandle.includes('s')) newH = Math.max(minH, initialBounds.height + dy);
+                  if (resizeHandle.includes('n')) {
+                      const maxDelta = initialBounds.height - minH; // Constrained by content
+                      const effDy = Math.min(dy, maxDelta);
+                      newH = initialBounds.height - effDy;
+                      newY = initialBounds.y + effDy;
+                  }
+
+                  return { ...el, x: newX, y: newY, width: newW, height: newH };
+              }));
           }
       };
 
@@ -492,13 +599,16 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
           window.removeEventListener('pointermove', handleGlobalMove);
           window.removeEventListener('pointerup', handleGlobalUp);
       };
-  }, []);
+  }, [scale]); // Re-bind when scale changes to use correct scale value
 
   // --- Helpers & Handlers ---
   
   const getMousePos = (e: React.PointerEvent) => {
       const rect = e.currentTarget.getBoundingClientRect();
-      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      return { 
+          x: (e.clientX - rect.left) / scale, 
+          y: (e.clientY - rect.top) / scale 
+      };
   };
 
   const deleteElement = useCallback((id: string) => {
@@ -523,8 +633,8 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       
       // If width/height are undefined (auto), use current DOM values
       const domRect = domEl ? domEl.getBoundingClientRect() : { width: 0, height: 0 };
-      const currentW = el.width || domRect.width;
-      const currentH = el.height || domRect.height;
+      const currentW = el.width || (domRect.width / scale);
+      const currentH = el.height || (domRect.height / scale);
       
       interactionRef.current = {
           mode: 'RESIZING',
@@ -535,9 +645,11 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
           initialBounds: { x: el.x, y: el.y, width: currentW, height: currentH },
           initialPositions: {}
       };
-  }, [elements]);
+  }, [elements, scale]);
 
   const handleContainerPointerDown = (e: React.PointerEvent) => {
+    if (tool !== 'SELECT' && tool !== 'ERASER' && e.button !== 0) return;
+
     const target = e.target as HTMLElement;
     const isBackground = target.id === 'canvas-bg' || target.tagName === 'svg';
     const { x, y } = getMousePos(e);
@@ -567,7 +679,9 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
 
     const isDragCreation = ['RECT', 'CIRCLE', 'DRAW'].includes(tool);
     interactionRef.current = { 
-      startX: x, startY: y, currentId: generateId(), mode: isDragCreation ? 'CREATING' : 'IDLE', initialPositions: {},
+      startX: x, // Store scaled start pos for CREATING logic consistency
+      startY: y,
+      currentId: generateId(), mode: isDragCreation ? 'CREATING' : 'IDLE', initialPositions: {},
       resizeHandle: '', initialBounds: { x: 0, y: 0, width: 0, height: 0 }
     };
 
@@ -579,7 +693,8 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       } else if (tool === 'EXPANDABLE') {
         newEl = { id: interactionRef.current.currentId!, type: ElementType.EXPANDABLE, x, y, content: 'Toggle Section', isExpanded: true, width: 300 };
       } else {
-        newEl = { id: interactionRef.current.currentId!, type: ElementType.TEXT, x, y, content: '', width: 500, height: 200 };
+        // Initial TEXT creation: Wider and with a default min-height via CSS (handled in TextElement)
+        newEl = { id: interactionRef.current.currentId!, type: ElementType.TEXT, x, y, content: '', width: 400 }; 
       }
       
       setElements(prev => [...prev, newEl]);
@@ -728,7 +843,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
                };
           }
       }
-  }, [tool, elements, deleteElement]);
+  }, [tool, elements, deleteElement, scale]); // Ensure scale is dependency if used implicitly or check callbacks
 
   // --- Text & Slash Menu Logic ---
 
@@ -788,6 +903,9 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
              const url = prompt("Enter Image URL:", "https://via.placeholder.com/300");
              if (url) document.execCommand('insertImage', false, url);
              break;
+          case 'toggle':
+             document.execCommand('insertHTML', false, '<details class="my-2"><summary class="cursor-pointer font-semibold list-none">Toggle Section</summary><div class="pl-4 mt-2">Content</div></details>');
+             break;
         }
     }
     setSlashMenu(null);
@@ -803,7 +921,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
       case ElementType.TEXT:
         return <TextElement key={el.id} {...props} onKeyUp={handleTextKeyUp} />;
       case ElementType.EXPANDABLE:
-        return <ExpandableElement key={el.id} {...props} />;
+        return <ExpandableElement key={el.id} {...props} onKeyUp={handleTextKeyUp} />;
       case ElementType.CODE:
         return <CodeElement key={el.id} {...props} />;
       case ElementType.IMAGE:
@@ -834,6 +952,7 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-gray-900 relative transition-colors">
       {slashMenu && <SlashMenu position={slashMenu} onSelect={handleSlashSelect} onClose={() => setSlashMenu(null)} />}
+      <ZoomControls scale={scale} setScale={setScale} />
       
       <div className="h-14 border-b border-gray-200 dark:border-gray-700 flex items-center px-4 justify-between bg-white dark:bg-gray-800 z-40 shadow-sm transition-colors">
          <div className="flex items-center gap-2">
@@ -862,7 +981,16 @@ export const Editor: React.FC<EditorProps> = ({ pageId, initialContent, onSave, 
         onPointerMove={handleContainerPointerMove}
         onPointerUp={handleContainerPointerUp}
       >
-        <div id="canvas-bg" className="absolute inset-0 min-w-full min-h-[2000px]">
+        <div 
+          id="canvas-bg" 
+          className="absolute inset-0 min-w-full origin-top-left"
+          style={{ 
+              transform: `scale(${scale})`, 
+              minHeight: getContentHeight(),
+              width: '100%',
+              height: 'max-content' 
+          }}
+        >
            <svg className="absolute inset-0 w-full h-full z-0 overflow-visible">{elements.map(renderSvgElement)}</svg>
            <div className="absolute inset-0 w-full h-full z-10 pointer-events-none"><div className="w-full h-full">{elements.map(renderElement)}</div></div>
            {selectionBox && <div className="absolute border border-blue-500 bg-blue-500/10 z-50 pointer-events-none" style={{ left: selectionBox.x, top: selectionBox.y, width: selectionBox.width, height: selectionBox.height }} />}
